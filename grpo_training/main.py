@@ -1,5 +1,5 @@
 def main():
-    print("Hello from reasoning-gym!")
+    print("Hello from grpo-training!")
 
 
 if __name__ == "__main__":
