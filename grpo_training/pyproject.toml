@@ -1,0 +1,16 @@
+[project]
+name = "grpo-training"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "accelerate>=1.10.1",
+    "datasets>=4.2.0",
+    "reasoning-gym>=0.1.24",
+    "transformers>=4.57.0",
+    "verifiers[train]",
+]
+
+[tool.uv.sources]
+verifiers = { git = "https://github.com/PrimeIntellect-ai/verifiers.git" }
