@@ -50,6 +50,10 @@ def create_rewards_from_config(reward_configs: List[Dict[str, Any]], task_name: 
         kwargs = {'weight': weight}
         if name == 'correctness':
             kwargs['task_name'] = task_name
+            # Add debug logging parameters if specified
+            kwargs['debug_logging'] = reward_config.get('debug_logging', True)
+            kwargs['log_first_n'] = reward_config.get('log_first_n', 10)
+            kwargs['log_every_n'] = reward_config.get('log_every_n', 50)
 
         reward = get_reward_function(name, **kwargs)
         rewards.append(reward)

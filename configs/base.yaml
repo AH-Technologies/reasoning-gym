@@ -28,6 +28,7 @@ training:
   logging_steps: 1
   save_steps: 50
   bf16: true
+  gradient_checkpointing: true  # Save memory by recomputing activations
 
 # Reward Configuration
 rewards:

@@ -4,20 +4,22 @@
 #SBATCH --time=04:00:00             # 4 hours for 7B model with 1024 examples
 #SBATCH --nodes=1
 #SBATCH --ntasks-per-node=1
-#SBATCH --cpus-per-task=16           # More CPUs for 4 GPUs
+#SBATCH --cpus-per-task=2           # More CPUs for 4 GPUs
 #SBATCH --mem=320G                   # More system memory for 4 GPUs
-#SBATCH --gres=gpu:a100:4           # Request 4 a100 GPUs (1 for vLLM, 3 for training)
+#SBATCH --gres=gpu:2                # Request 2 GPUs (1 for vLLM, 1 for training)
+#SBATCH --constraint="h200&gpu80g"  # Request H200 80GB GPUs (currently idle!)
 #SBATCH --job-name="grpo_training"
 #SBATCH --output=training_%j.log    # Output log with job ID
+
 
 # Print job info
 echo "Starting job at: $(date)"
 echo "Job ID: $SLURM_JOB_ID"
 echo "Running on node: $SLURM_JOB_NODELIST"
 echo "GPU devices: $CUDA_VISIBLE_DEVICES"
+echo "Working directory: $(pwd)"
 
 # Activate virtual environment
-cd /cluster/home/haaklau/code/reasoning-gym/grpo_training
 source .venv/bin/activate
 
 # Start vLLM inference server (will use GPU 0 by default)
@@ -70,7 +72,7 @@ echo "Starting training with accelerate on GPUs 1,2,3..."
 export NCCL_DEBUG=INFO
 export NCCL_IB_DISABLE=1
 export NCCL_P2P_DISABLE=0
-accelerate launch --num-processes 3 --gpu-ids 1,2,3 --main_process_port 29500 train.py
+accelerate launch --num-processes 1 --gpu-ids 1 --main_process_port 29500 scripts/train.py configs/experiments/leg_counting_qwen7b.yaml
 
 # Cleanup: Stop vLLM server
 echo "Stopping vLLM server..."

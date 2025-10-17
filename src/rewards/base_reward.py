@@ -10,6 +10,8 @@ class BaseReward(ABC):
     def __init__(self, weight: float = 1.0, **kwargs):
         self.weight = weight
         self.kwargs = kwargs
+        # Add __name__ attribute so verifiers library recognizes this as a function
+        self.__name__ = self.__class__.__name__
 
     @abstractmethod
     def compute(

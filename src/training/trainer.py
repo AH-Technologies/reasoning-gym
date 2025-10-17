@@ -45,6 +45,7 @@ def create_training_config(config: Dict[str, Any]) -> vf.GRPOConfig:
         save_steps=train_config.get('save_steps', 50),
         report_to=config.get('logging', {}).get('report_to', 'wandb'),
         bf16=train_config.get('bf16', True),
+        gradient_checkpointing=train_config.get('gradient_checkpointing', False),
     )
 
     print(f"✓ Training config created")
@@ -52,6 +53,7 @@ def create_training_config(config: Dict[str, Any]) -> vf.GRPOConfig:
     print(f"  Epochs: {train_config['num_train_epochs']}")
     print(f"  Batch size: {train_config['per_device_train_batch_size']}")
     print(f"  Learning rate: {train_config['learning_rate']}")
+    print(f"  Gradient checkpointing: {train_config.get('gradient_checkpointing', False)}")
 
     return grpo_config
 
