@@ -7,6 +7,9 @@ output/
 # Ignore wandb repo
 wandb/
 
+# Old code
+old_code/
+
 # Ignore virtual environments
 .venv/
 
