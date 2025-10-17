@@ -1,0 +1,15 @@
+# Leg Counting Task Configuration
+
+data:
+  task_name: "leg_counting"
+  num_examples: 1024
+  seed: 42
+
+rewards:
+  - name: "correctness"
+    weight: 1.0
+
+training:
+  # Task-specific training settings
+  temperature: 0.7
+  num_train_epochs: 1

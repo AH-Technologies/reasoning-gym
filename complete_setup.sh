@@ -35,12 +35,6 @@ else
     echo "uv already installed"
 fi
 
-# Create project directory
-echo ""
-echo "Creating project directory..."
-mkdir -p grpo_training
-cd grpo_training
-
 # Initialize uv project
 echo "Initializing uv project..."
 if [ ! -f "pyproject.toml" ]; then
@@ -74,7 +68,7 @@ uv pip install flash-attn --no-build-isolation
 # Install additional utilities
 echo ""
 echo "Installing additional utilities..."
-uv add datasets transformers accelerate
+uv add datasets transformers accelerate pyyaml
 
 # Install the reasoning_gym_env environment module
 echo ""
@@ -115,7 +109,7 @@ cat > activate.sh << 'EOF'
 source .venv/bin/activate
 source .env
 echo "Environment activated!"
-echo "You can now run: python train.py"
+echo "You can now run: python scripts/train.py configs/experiments/leg_counting_qwen7b.yaml"
 EOF
 chmod +x activate.sh
 
@@ -127,10 +121,9 @@ echo ""
 echo "Project created in: $(pwd)"
 echo ""
 echo "Next steps:"
-echo "  1. Copy train.py into this directory"
-echo "  2. Activate environment: source activate.sh"
-echo "  3. Run training: python train.py"
+echo "  1. Activate environment: source activate.sh"
+echo "  2. Run training: python scripts/train.py configs/experiments/leg_counting_qwen7b.yaml"
 echo ""
 echo "Or run everything in one line:"
-echo "  source activate.sh && python train.py"
+echo "  source activate.sh && python scripts/train.py configs/experiments/leg_counting_qwen7b.yaml"
 echo ""

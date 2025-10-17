@@ -1,0 +1,16 @@
+# Complete Experiment Configuration: Leg Counting with Qwen 7B
+# This composes base + model + task configs
+
+# Import base configurations (this is a convention, will be handled by config loader)
+_base_:
+  - ../base.yaml
+  - ../models/qwen-7b.yaml
+  - ../tasks/leg_counting.yaml
+
+# Experiment-specific overrides
+training:
+  output_dir: "./experiments/leg_counting_qwen7b"
+
+logging:
+  run_name: "leg_counting_qwen7b"
+  project_name: "grpo-reasoning-gym"
