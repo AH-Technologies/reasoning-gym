@@ -37,7 +37,7 @@ def create_training_config(config: Dict[str, Any]) -> vf.GRPOConfig:
         gradient_accumulation_steps=train_config['gradient_accumulation_steps'],
         learning_rate=train_config['learning_rate'],
         lr_scheduler_type=train_config.get('lr_scheduler_type', 'constant_with_warmup'),
-        warmup_steps=train_config.get('warmup_steps', 10),
+        warmup_steps=train_config.get('warmup_steps', 100),
         num_generations=train_config['num_generations'],
         temperature=train_config.get('temperature', 0.7),
         max_grad_norm=train_config.get('max_grad_norm', 0.2),
@@ -46,6 +46,12 @@ def create_training_config(config: Dict[str, Any]) -> vf.GRPOConfig:
         report_to=config.get('logging', {}).get('report_to', 'wandb'),
         bf16=train_config.get('bf16', True),
         gradient_checkpointing=train_config.get('gradient_checkpointing', False),
+        optim=train_config.get('optim', 'adamw_torch'),
+        # Reference model / KL penalty settings
+        beta=train_config.get('beta', 0.001),
+        sync_ref_model=train_config.get('sync_ref_model', True),
+        ref_model_sync_steps=train_config.get('ref_model_sync_steps', 100),
+        ref_model_mixup_alpha=train_config.get('ref_model_mixup_alpha', 0.5),
     )
 
     print(f"✓ Training config created")
@@ -58,15 +64,24 @@ def create_training_config(config: Dict[str, Any]) -> vf.GRPOConfig:
     return grpo_config
 
 
-def create_trainer(model, tokenizer, training_config: vf.GRPOConfig, env: vf.SingleTurnEnv) -> vf.GRPOTrainer:
+def create_trainer(model, tokenizer, training_config: vf.GRPOConfig, env: vf.SingleTurnEnv, config: dict) -> vf.GRPOTrainer:
     """Create GRPO trainer."""
     print(f"\n[Trainer] Creating GRPO trainer...")
+
+    # Check if LoRA is enabled
+    peft_config = None
+    if config.get('training', {}).get('use_lora', False):
+        lora_r = config['training'].get('lora_r', 8)
+        lora_alpha = config['training'].get('lora_alpha', 16)
+        peft_config = vf.lora_defaults(r=lora_r, alpha=lora_alpha)
+        print(f"  Using LoRA: r={lora_r}, alpha={lora_alpha}")
 
     trainer = vf.GRPOTrainer(
         model=model,
         args=training_config,
         processing_class=tokenizer,
         env=env,
+        peft_config=peft_config,
     )
 
     print(f"✓ Trainer created")

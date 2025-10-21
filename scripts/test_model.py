@@ -1,27 +1,28 @@
 #!/usr/bin/env python3
 """
 Test your trained model interactively
+Supports both regular models and LoRA checkpoints.
 Usage: python test_model.py [checkpoint_path]
 """
 
 import sys
-import torch
-from transformers import AutoTokenizer, AutoModelForCausalLM
+from pathlib import Path
+
+# Add parent directory to path
+sys.path.insert(0, str(Path(__file__).parent.parent))
+
+from src.models.model_loader import load_model_and_tokenizer_from_path
 
 def load_model(checkpoint_path):
-    """Load model and tokenizer from checkpoint"""
+    """Load model and tokenizer from checkpoint (supports LoRA)"""
     print(f"Loading model from: {checkpoint_path}")
     print("This may take a minute...")
+    print()
 
-    tokenizer = AutoTokenizer.from_pretrained(checkpoint_path)
-    model = AutoModelForCausalLM.from_pretrained(
-        checkpoint_path,
-        torch_dtype=torch.bfloat16,
-        device_map="auto"
-    )
+    model, tokenizer = load_model_and_tokenizer_from_path(checkpoint_path)
     model.eval()
 
-    print("✓ Model loaded successfully!\n")
+    print("\n✓ Model loaded successfully!\n")
     return model, tokenizer
 
 

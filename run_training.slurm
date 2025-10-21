@@ -1,15 +1,14 @@
 #!/bin/bash
 #SBATCH --partition=GPUQ
 #SBATCH --account=share-ie-idi       # Replace with your account name
-#SBATCH --time=04:00:00             # 4 hours for 7B model with 1024 examples
+#SBATCH --time=02:00:00             # 4 hours for 7B model with 1024 examples
 #SBATCH --nodes=1
 #SBATCH --ntasks-per-node=1
-#SBATCH --cpus-per-task=2           # More CPUs for 4 GPUs
-#SBATCH --mem=320G                   # More system memory for 4 GPUs
-#SBATCH --gres=gpu:2                # Request 2 GPUs (1 for vLLM, 1 for training)
-#SBATCH --constraint="h200&gpu80g"  # Request H200 80GB GPUs (currently idle!)
+#SBATCH --cpus-per-task=5           # More CPUs for 4 GPUs
+#SBATCH --mem=256G                   # More system memory for 4 GPUs
+#SBATCH --gres=gpu:a100:5           # Request 4 GPUs (1 for vLLM, 3 for training)
 #SBATCH --job-name="grpo_training"
-#SBATCH --output=training_%j.log    # Output log with job ID
+#SBATCH --output=logs/training_%j.log    # Output log with job ID
 
 
 # Print job info
@@ -30,7 +29,7 @@ vf-vllm --model Qwen/Qwen2.5-7B-Instruct \
     --disable-log-requests \
     --gpu-memory-utilization 0.5 \
     --dtype bfloat16 \
-    > vllm_server.log 2>&1 &
+    > logs/vllm_server.log 2>&1 &
 
 VLLM_PID=$!
 echo "vLLM server started with PID: $VLLM_PID"
@@ -72,7 +71,13 @@ echo "Starting training with accelerate on GPUs 1,2,3..."
 export NCCL_DEBUG=INFO
 export NCCL_IB_DISABLE=1
 export NCCL_P2P_DISABLE=0
-accelerate launch --num-processes 1 --gpu-ids 1 --main_process_port 29500 scripts/train.py configs/experiments/leg_counting_qwen7b.yaml
+export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
+
+# Option 1: DDP with memory optimizations
+accelerate launch --num-processes 4 --gpu-ids 1,2,3,4 --main_process_port 29500 scripts/train.py configs/experiments/leg_counting_qwen7b.yaml
+
+# Option 2: FSDP (has device placement issues with GRPO - disabled for now)
+# accelerate launch --config-file configs/accelerate_fsdp.yaml --gpu-ids 1,2,3 --main_process_port 29500 scripts/train.py configs/experiments/leg_counting_qwen7b.yaml
 
 # Cleanup: Stop vLLM server
 echo "Stopping vLLM server..."

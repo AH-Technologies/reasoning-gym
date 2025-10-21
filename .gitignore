@@ -36,3 +36,9 @@ checkpoint-*/
 
 # Ignore SLURM output logs
 slurm-*.out
+
+# Benchmark
+benchmark_results/
+
+# Log repo
+logs/

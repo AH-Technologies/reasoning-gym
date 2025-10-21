@@ -23,6 +23,8 @@ from src.training.trainer import (
     create_trainer,
     run_training
 )
+from src.utils.memory_tracker import MemoryTracker, print_memory_estimate
+import torch
 
 
 def print_training_banner(config):
@@ -60,6 +62,9 @@ def main():
 
     config_path = sys.argv[1]
 
+    # Initialize memory tracker
+    memory_tracker = MemoryTracker(device=0) if torch.cuda.is_available() else None
+
     # Load configuration
     print(f"\n[Config] Loading from: {config_path}")
     config = load_config(config_path)
@@ -93,15 +98,28 @@ def main():
     print("\n[4/5] Loading model and tokenizer...")
     model, tokenizer = load_model_and_tokenizer(config.to_dict())
 
+    if memory_tracker:
+        memory_tracker.log_memory("01_after_model_load")
+        # Print estimated memory requirements
+        num_params = sum(p.numel() for p in model.parameters())
+        print_memory_estimate(num_params, dtype="bf16")
+
     # Step 5: Configure training
     print("\n[5/5] Configuring training...")
     training_config = create_training_config(config.to_dict())
 
     # Create trainer
-    trainer = create_trainer(model, tokenizer, training_config, env)
+    trainer = create_trainer(model, tokenizer, training_config, env, config.to_dict())
+
+    if memory_tracker:
+        memory_tracker.log_memory("02_after_trainer_creation")
 
     # Run training
     run_training(trainer)
+
+    if memory_tracker:
+        memory_tracker.log_memory("03_after_training")
+        memory_tracker.print_summary()
 
     # Final success message
     print("\n" + "="*60)
