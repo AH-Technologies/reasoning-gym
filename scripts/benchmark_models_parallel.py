@@ -23,6 +23,7 @@ import sys
 import time
 from concurrent.futures import ProcessPoolExecutor, as_completed
 from datetime import datetime
+from fractions import Fraction
 from pathlib import Path
 from typing import Dict, List, Any, Optional
 
@@ -80,6 +81,27 @@ def format_question_simple(question: str) -> str:
     return instruction + question
 
 
+def convert_to_serializable(obj: Any) -> Any:
+    """Convert non-serializable objects (like Fraction) to serializable types.
+
+    This is needed because PyArrow (used by datasets library) cannot handle
+    certain Python types like Fraction objects.
+    """
+    if isinstance(obj, Fraction):
+        # Convert Fraction to float
+        return float(obj)
+    elif isinstance(obj, dict):
+        return {k: convert_to_serializable(v) for k, v in obj.items()}
+    elif isinstance(obj, (list, tuple)):
+        return [convert_to_serializable(item) for item in obj]
+    elif isinstance(obj, np.integer):
+        return int(obj)
+    elif isinstance(obj, np.floating):
+        return float(obj)
+    else:
+        return obj
+
+
 def create_benchmark_dataset(task_name: str, num_examples: int, seed: int = 42) -> Dataset:
     """Create a fixed benchmark dataset from reasoning-gym."""
     logger.info(f"Creating benchmark dataset: {task_name} with {num_examples} examples (seed={seed})")
@@ -92,10 +114,14 @@ def create_benchmark_dataset(task_name: str, num_examples: int, seed: int = 42) 
 
     questions = [format_question_simple(entry['question']) for entry in rg_data]
 
+    # Convert metadata to JSON strings to avoid PyArrow serialization issues
+    # This handles both Fraction objects and inconsistent metadata structures
+    metadata = [json.dumps(convert_to_serializable(entry['metadata'])) for entry in rg_data]
+
     dataset = Dataset.from_dict({
         'question': questions,
         'answer': [entry['answer'] for entry in rg_data],
-        'info': [entry['metadata'] for entry in rg_data]
+        'info': metadata
     })
 
     logger.info(f"Created dataset with {len(dataset)} examples")
@@ -184,24 +210,26 @@ def generate_answer(
 
 def evaluate_model_on_gpu(
     model_name_or_path: str,
+    task_name: str,
     dataset_dict: Dict,
     gpu_id: int,
     max_new_tokens: int = 512,
     temperature: float = 0.1,
 ) -> Dict[str, Any]:
-    """Evaluate a single model on a specific GPU.
+    """Evaluate a single model on a specific task on a specific GPU.
 
     This function is designed to run in a separate process.
 
     Args:
         model_name_or_path: HuggingFace model name or path to local checkpoint
+        task_name: Name of the task being evaluated
         dataset_dict: Dataset as dictionary
         gpu_id: GPU ID to use
         max_new_tokens: Maximum tokens to generate
         temperature: Sampling temperature
 
     Returns:
-        Dictionary with evaluation results
+        Dictionary with evaluation results including task_name
     """
     # Set GPU
     device = f"cuda:{gpu_id}"
@@ -214,7 +242,7 @@ def evaluate_model_on_gpu(
     display_name = get_model_display_name(model_name_or_path)
 
     logger.info(f"\n{'='*60}")
-    logger.info(f"Evaluating: {display_name} on GPU {gpu_id}")
+    logger.info(f"Evaluating: {display_name} on task '{task_name}' (GPU {gpu_id})")
     logger.info(f"{'='*60}")
 
     start_time = time.time()
@@ -225,6 +253,7 @@ def evaluate_model_on_gpu(
     except Exception as e:
         logger.error(f"Failed to load model {display_name}: {e}")
         return {
+            'task_name': task_name,
             'model_name': model_name_or_path,
             'display_name': display_name,
             'gpu_id': gpu_id,
@@ -278,7 +307,7 @@ def evaluate_model_on_gpu(
     accuracy = correct / len(dataset) * 100
     elapsed_time = time.time() - start_time
 
-    logger.info(f"\nResults for {display_name}:")
+    logger.info(f"\nResults for {display_name} on {task_name}:")
     logger.info(f"  Correct: {correct}/{len(dataset)}")
     logger.info(f"  Accuracy: {accuracy:.2f}%")
     logger.info(f"  Time: {elapsed_time:.1f}s")
@@ -288,6 +317,7 @@ def evaluate_model_on_gpu(
     torch.cuda.empty_cache()
 
     return {
+        'task_name': task_name,
         'model_name': model_name_or_path,
         'display_name': display_name,
         'gpu_id': gpu_id,
@@ -299,7 +329,7 @@ def evaluate_model_on_gpu(
     }
 
 
-def create_bar_chart(results: List[Dict[str, Any]], output_path: str):
+def create_bar_chart(results: List[Dict[str, Any]], output_path: str, title: str = None):
     """Create a bar chart comparing model accuracies."""
     results = sorted(results, key=lambda x: x['accuracy'], reverse=True)
 
@@ -312,7 +342,9 @@ def create_bar_chart(results: List[Dict[str, Any]], output_path: str):
 
     plt.xlabel('Model', fontsize=12, fontweight='bold')
     plt.ylabel('Accuracy (%)', fontsize=12, fontweight='bold')
-    plt.title('Model Performance Comparison on Reasoning Task', fontsize=14, fontweight='bold')
+    if title is None:
+        title = 'Model Performance Comparison on Reasoning Task'
+    plt.title(title, fontsize=14, fontweight='bold')
     plt.xticks(range(len(model_names)), model_names, rotation=45, ha='right')
     plt.ylim(0, 100)
     plt.grid(axis='y', alpha=0.3, linestyle='--')
@@ -324,17 +356,97 @@ def create_bar_chart(results: List[Dict[str, Any]], output_path: str):
 
     plt.tight_layout()
     plt.savefig(output_path, dpi=300, bbox_inches='tight')
+    plt.close()
     logger.info(f"Bar chart saved to: {output_path}")
 
 
+def create_summary_chart(all_task_results: Dict[str, List[Dict[str, Any]]], output_path: str):
+    """Create a grouped bar chart comparing models across multiple tasks."""
+    # Extract unique models and tasks
+    tasks = list(all_task_results.keys())
+    all_models = set()
+    for task_results in all_task_results.values():
+        for result in task_results:
+            all_models.add(result['model_name'])
+    models = sorted(all_models)
+
+    # Get display names
+    model_display_names = [get_model_display_name(m) for m in models]
+
+    # Build accuracy matrix: models x tasks
+    accuracy_matrix = []
+    for model in models:
+        model_accuracies = []
+        for task in tasks:
+            task_results = all_task_results[task]
+            # Find this model's result for this task
+            acc = 0.0
+            for result in task_results:
+                if result['model_name'] == model:
+                    acc = result['accuracy']
+                    break
+            model_accuracies.append(acc)
+        accuracy_matrix.append(model_accuracies)
+
+    # Calculate averages for each model
+    model_averages = [np.mean(accs) for accs in accuracy_matrix]
+
+    # Create grouped bar chart
+    x = np.arange(len(models))
+    num_groups = len(tasks) + 1  # tasks + average
+    width = 0.8 / num_groups  # Width of bars
+
+    fig, ax = plt.subplots(figsize=(14, 7))
+
+    colors = plt.cm.Set3(np.linspace(0, 1, len(tasks)))
+
+    # Plot bars for each task
+    for i, task in enumerate(tasks):
+        offset = width * i - (width * num_groups / 2) + width / 2
+        accuracies = [accuracy_matrix[j][i] for j in range(len(models))]
+        bars = ax.bar(x + offset, accuracies, width, label=task, color=colors[i], alpha=0.8)
+
+        # Add value labels on bars
+        for bar in bars:
+            height = bar.get_height()
+            if height > 0:  # Only show label if there's data
+                ax.text(bar.get_x() + bar.get_width()/2., height + 1,
+                       f'{height:.0f}', ha='center', va='bottom', fontsize=8)
+
+    # Add average bars
+    offset = width * len(tasks) - (width * num_groups / 2) + width / 2
+    avg_bars = ax.bar(x + offset, model_averages, width, label='Average',
+                      color='darkgray', alpha=0.9, edgecolor='black', linewidth=1.5)
+
+    # Add value labels on average bars with bold formatting
+    for bar, avg in zip(avg_bars, model_averages):
+        height = bar.get_height()
+        ax.text(bar.get_x() + bar.get_width()/2., height + 1,
+               f'{avg:.1f}', ha='center', va='bottom', fontsize=9, fontweight='bold')
+
+    ax.set_xlabel('Model', fontsize=12, fontweight='bold')
+    ax.set_ylabel('Accuracy (%)', fontsize=12, fontweight='bold')
+    ax.set_title('Model Performance Across Multiple Tasks', fontsize=14, fontweight='bold')
+    ax.set_xticks(x)
+    ax.set_xticklabels(model_display_names, rotation=45, ha='right')
+    ax.set_ylim(0, 110)  # Extra space for labels
+    ax.legend(title='Tasks', loc='upper left', bbox_to_anchor=(1, 1))
+    ax.grid(axis='y', alpha=0.3, linestyle='--')
+
+    plt.tight_layout()
+    plt.savefig(output_path, dpi=300, bbox_inches='tight')
+    plt.close()
+    logger.info(f"Summary chart saved to: {output_path}")
+
+
 def main():
-    parser = argparse.ArgumentParser(description='Benchmark multiple LLMs in parallel')
+    parser = argparse.ArgumentParser(description='Benchmark multiple LLMs in parallel on multiple tasks')
     parser.add_argument('--models', nargs='+', required=True,
                         help='List of models to benchmark (HuggingFace names or local checkpoint paths)')
-    parser.add_argument('--task', type=str, default='leg_counting',
-                        help='Reasoning-gym task name')
+    parser.add_argument('--tasks', nargs='+', default=['leg_counting'],
+                        help='Reasoning-gym task names (can specify multiple tasks)')
     parser.add_argument('--num-examples', type=int, default=100,
-                        help='Number of examples to test')
+                        help='Number of examples to test per task')
     parser.add_argument('--seed', type=int, default=42,
                         help='Random seed for dataset generation')
     parser.add_argument('--output-dir', type=str, default='./benchmark_results',
@@ -364,8 +476,8 @@ def main():
     logger.info(f"\n{'='*60}")
     logger.info("PARALLEL BENCHMARK CONFIGURATION")
     logger.info(f"{'='*60}")
-    logger.info(f"Task: {args.task}")
-    logger.info(f"Number of examples: {args.num_examples}")
+    logger.info(f"Tasks: {', '.join(args.tasks)}")
+    logger.info(f"Number of examples per task: {args.num_examples}")
     logger.info(f"Seed: {args.seed}")
     logger.info(f"Number of GPUs: {num_gpus}")
     logger.info(f"Models to test: {len(args.models)}")
@@ -373,35 +485,48 @@ def main():
         logger.info(f"  - {model}")
     logger.info(f"{'='*60}\n")
 
-    # Create benchmark dataset (same for all models)
-    dataset = create_benchmark_dataset(args.task, args.num_examples, args.seed)
+    # Create datasets for all tasks upfront
+    logger.info("Creating datasets for all tasks...")
+    task_datasets = {}
+    for task in args.tasks:
+        logger.info(f"  Creating dataset for {task}...")
+        dataset = create_benchmark_dataset(task, args.num_examples, args.seed)
+        task_datasets[task] = {
+            'question': dataset['question'],
+            'answer': dataset['answer'],
+            'info': dataset['info']
+        }
+    logger.info("All datasets created!\n")
 
-    # Convert to dict for multiprocessing
-    dataset_dict = {
-        'question': dataset['question'],
-        'answer': dataset['answer'],
-        'info': dataset['info']
-    }
+    # Create all (task, model) combinations
+    all_combinations = []
+    for task in args.tasks:
+        for model in args.models:
+            all_combinations.append((task, model))
 
-    # Evaluate models in parallel
-    all_results = []
+    # Assign each combination to a GPU (round-robin)
+    task_model_gpu_assignments = [
+        (task, model, i % num_gpus)
+        for i, (task, model) in enumerate(all_combinations)
+    ]
 
-    # Assign models to GPUs (round-robin)
-    model_gpu_pairs = [(model, i % num_gpus) for i, model in enumerate(args.models)]
-
-    logger.info("Starting parallel evaluation...")
-    logger.info(f"Model-GPU assignments:")
-    for model, gpu in model_gpu_pairs:
+    logger.info(f"Starting fully parallel evaluation of {len(all_combinations)} task-model combinations...")
+    logger.info(f"Task-Model-GPU assignments:")
+    for task, model, gpu in task_model_gpu_assignments:
         display = get_model_display_name(model)
-        logger.info(f"  {display} -> GPU {gpu}")
+        logger.info(f"  {task} + {display} -> GPU {gpu}")
+    logger.info("")
 
+    # Run all combinations in parallel
+    all_results = []
     with ProcessPoolExecutor(max_workers=num_gpus) as executor:
         futures = []
-        for model_name, gpu_id in model_gpu_pairs:
+        for task, model_name, gpu_id in task_model_gpu_assignments:
             future = executor.submit(
                 evaluate_model_on_gpu,
                 model_name,
-                dataset_dict,
+                task,
+                task_datasets[task],
                 gpu_id,
                 args.max_new_tokens,
                 args.temperature
@@ -413,45 +538,89 @@ def main():
             try:
                 result = future.result()
                 all_results.append(result)
+                task = result['task_name']
                 display = result.get('display_name', result['model_name'])
-                logger.info(f"✓ Completed: {display} - Accuracy: {result['accuracy']:.2f}%")
+                logger.info(f"✓ Completed: {task} + {display} - Accuracy: {result['accuracy']:.2f}%")
             except Exception as e:
                 logger.error(f"Error in parallel execution: {e}")
 
-    # Save results
-    results_file = output_dir / f'results_{timestamp}.json'
-    with open(results_file, 'w') as f:
+    # Organize results by task
+    all_task_results = {}
+    for task in args.tasks:
+        task_results = [r for r in all_results if r['task_name'] == task]
+        all_task_results[task] = task_results
+
+        # Save per-task results
+        task_results_file = output_dir / f'results_{task}_{timestamp}.json'
+        with open(task_results_file, 'w') as f:
+            json.dump({
+                'config': {
+                    'task': task,
+                    'num_examples': args.num_examples,
+                    'seed': args.seed,
+                    'num_gpus': num_gpus,
+                    'models': args.models,
+                    'timestamp': timestamp,
+                },
+                'results': task_results
+            }, f, indent=2)
+        logger.info(f"\nTask results saved to: {task_results_file}")
+
+        # Create per-task bar chart
+        task_chart_file = output_dir / f'comparison_{task}_{timestamp}.png'
+        create_bar_chart(task_results, str(task_chart_file), title=f'Performance on {task}')
+
+        # Print task summary
+        logger.info(f"\n{'='*60}")
+        logger.info(f"TASK SUMMARY: {task}")
+        logger.info(f"{'='*60}")
+        logger.info(f"{'Model':<40} {'GPU':<8} {'Accuracy':<15} {'Correct/Total':<15}")
+        logger.info(f"{'-'*78}")
+        for result in sorted(task_results, key=lambda x: x['accuracy'], reverse=True):
+            display = result.get('display_name', result['model_name'].split('/')[-1])[:38]
+            if 'error' in result:
+                logger.info(f"{display:<40} {result.get('gpu_id', 'N/A'):<8} {'ERROR':<15} {'N/A':<15}")
+            else:
+                logger.info(f"{display:<40} {result['gpu_id']:<8} {result['accuracy']:>6.2f}%{' '*8} "
+                           f"{result['num_correct']}/{result['num_total']}")
+        logger.info(f"{'='*60}\n")
+
+    # Save combined results across all tasks
+    combined_results_file = output_dir / f'results_all_tasks_{timestamp}.json'
+    with open(combined_results_file, 'w') as f:
         json.dump({
             'config': {
-                'task': args.task,
+                'tasks': args.tasks,
                 'num_examples': args.num_examples,
                 'seed': args.seed,
                 'num_gpus': num_gpus,
                 'models': args.models,
                 'timestamp': timestamp,
             },
-            'results': all_results
+            'results_by_task': all_task_results
         }, f, indent=2)
-    logger.info(f"\nResults saved to: {results_file}")
+    logger.info(f"\nCombined results saved to: {combined_results_file}")
 
-    # Create bar chart
-    chart_file = output_dir / f'comparison_{timestamp}.png'
-    create_bar_chart(all_results, str(chart_file))
+    # Create summary chart across all tasks (if multiple tasks)
+    if len(args.tasks) > 1:
+        summary_chart_file = output_dir / f'summary_all_tasks_{timestamp}.png'
+        create_summary_chart(all_task_results, str(summary_chart_file))
 
-    # Print summary
+    # Print final summary across all tasks
     logger.info(f"\n{'='*60}")
-    logger.info("FINAL SUMMARY")
+    logger.info("FINAL SUMMARY - ALL TASKS")
     logger.info(f"{'='*60}")
-    logger.info(f"{'Model':<40} {'GPU':<8} {'Accuracy':<15} {'Correct/Total':<15}")
-    logger.info(f"{'-'*78}")
-    for result in sorted(all_results, key=lambda x: x['accuracy'], reverse=True):
-        display = result.get('display_name', result['model_name'].split('/')[-1])[:38]
-        if 'error' in result:
-            logger.info(f"{display:<40} {result.get('gpu_id', 'N/A'):<8} {'ERROR':<15} {'N/A':<15}")
-        else:
-            logger.info(f"{display:<40} {result['gpu_id']:<8} {result['accuracy']:>6.2f}%{' '*8} "
-                       f"{result['num_correct']}/{result['num_total']}")
-    logger.info(f"{'='*60}\n")
+    for task, task_results in all_task_results.items():
+        logger.info(f"\n{task}:")
+        logger.info(f"{'Model':<40} {'Accuracy':<15}")
+        logger.info(f"{'-'*55}")
+        for result in sorted(task_results, key=lambda x: x['accuracy'], reverse=True):
+            display = result.get('display_name', result['model_name'].split('/')[-1])[:38]
+            if 'error' in result:
+                logger.info(f"{display:<40} {'ERROR':<15}")
+            else:
+                logger.info(f"{display:<40} {result['accuracy']:>6.2f}%")
+    logger.info(f"\n{'='*60}\n")
 
 
 if __name__ == '__main__':

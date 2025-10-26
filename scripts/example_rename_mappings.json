@@ -1,0 +1,12 @@
+{
+  "meta-llama/Llama-3.1-8B-Instruct": "Llama 3.1 8B",
+  "Qwen/Qwen2.5-7B-Instruct": "Qwen-2.5 7B",
+  "microsoft/Phi-4-mini-reasoning": "Phi-4 Mini",
+  "mistralai/Mistral-7B-Instruct-v0.3": "Mistral 7B v0.3",
+  "leg_counting_qwen7b/checkpoint-450": "Qwen-2.5 7B (RL-trained)",
+  "Qwen/Qwen2.5-0.5B-Instruct": "Qwen-2.5 0.5B",
+  "Qwen/Qwen2.5-1.5B-Instruct": "Qwen-2.5 1.5B",
+  "Qwen/Qwen2.5-3B-Instruct": "Qwen-2.5 3B",
+  "Qwen/Qwen2.5-14B-Instruct": "Qwen-2.5 14B",
+  "Qwen/Qwen2.5-32B-Instruct": "Qwen-2.5 32B"
+}

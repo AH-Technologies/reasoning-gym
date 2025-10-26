@@ -4,9 +4,9 @@
 #SBATCH --time=02:00:00             # 4 hours for 7B model with 1024 examples
 #SBATCH --nodes=1
 #SBATCH --ntasks-per-node=1
-#SBATCH --cpus-per-task=5           # More CPUs for 4 GPUs
+#SBATCH --cpus-per-task=8           # More CPUs for 4 GPUs
 #SBATCH --mem=256G                   # More system memory for 4 GPUs
-#SBATCH --gres=gpu:a100:5           # Request 4 GPUs (1 for vLLM, 3 for training)
+#SBATCH --gres=gpu:h100:4           # Request 4 GPUs (1 for vLLM, 3 for training)
 #SBATCH --job-name="grpo_training"
 #SBATCH --output=logs/training_%j.log    # Output log with job ID
 
@@ -73,11 +73,7 @@ export NCCL_IB_DISABLE=1
 export NCCL_P2P_DISABLE=0
 export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
 
-# Option 1: DDP with memory optimizations
-accelerate launch --num-processes 4 --gpu-ids 1,2,3,4 --main_process_port 29500 scripts/train.py configs/experiments/leg_counting_qwen7b.yaml
-
-# Option 2: FSDP (has device placement issues with GRPO - disabled for now)
-# accelerate launch --config-file configs/accelerate_fsdp.yaml --gpu-ids 1,2,3 --main_process_port 29500 scripts/train.py configs/experiments/leg_counting_qwen7b.yaml
+accelerate launch --num-processes 3 --gpu-ids 1,2,3 --main_process_port 29500 scripts/train.py configs/experiments/leg_counting_qwen7b.yaml
 
 # Cleanup: Stop vLLM server
 echo "Stopping vLLM server..."
