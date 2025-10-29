@@ -129,14 +129,14 @@ sequenceDiagram
         Model->>GRPO: Return completions
 
         loop For each completion
-            GRPO->>GRPO: Extract answer from<br/>&lt;answer&gt; tags
+            GRPO->>GRPO: Extract answer from XML tags
             GRPO->>Verifier: Verify answer correctness
             Verifier->>Rewards: Return score (0.0-1.0)
             Rewards->>GRPO: Compute weighted reward
         end
 
         GRPO->>GRPO: Group relative advantages
-        GRPO->>Model: Backprop policy gradient<br/>with KL penalty
+        GRPO->>Model: Backprop policy gradient with KL penalty
         Model->>Model: Update parameters
     end
 
