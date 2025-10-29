@@ -5,9 +5,9 @@
 #SBATCH --time=01:00:00
 #SBATCH --nodes=1
 #SBATCH --ntasks-per-node=1
-#SBATCH --cpus-per-task=16
+#SBATCH --cpus-per-task=4
 #SBATCH --mem=64G
-#SBATCH --gres=gpu:h100:8
+#SBATCH --gres=gpu:a100:2
 #SBATCH --output=logs/benchmark_parallel_%j.log
 #SBATCH --error=logs/benchmark_parallel_%j.err
 
@@ -50,10 +50,10 @@ echo "=========================================="
 # Configuration
 # You can specify multiple tasks - each model will be tested on all tasks
 # All task-model combinations will run in parallel across available GPUs
-# TASKS=("leg_counting")  
-TASKS=("gsm_symbolic" "letter_counting" "basic_arithmetic" "simple_geometry" "mini_sudoku")
+TASKS=("leg_counting")  
+# TASKS=("gsm_symbolic" "letter_counting" "basic_arithmetic" "simple_geometry" "mini_sudoku")
 NUM_EXAMPLES=100
-SEED=42
+SEED=43
 OUTPUT_DIR="./benchmark_results"
 MAX_NEW_TOKENS=512
 TEMPERATURE=0.1

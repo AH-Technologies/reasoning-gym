@@ -170,13 +170,23 @@ def get_model_display_name(model_name: str, name_mapping: Dict[str, str] = None)
     return model_name.split('/')[-1] if '/' in model_name else model_name
 
 
+def format_task_name(task_name: str) -> str:
+    """Convert task name from underscore format to title case.
+
+    Examples:
+        'gsm_symbolic' -> 'Gsm Symbolic'
+        'letter_counting' -> 'Letter Counting'
+    """
+    return task_name.replace('_', ' ').title()
+
+
 def create_multi_task_summary_chart(
     all_task_results: Dict[str, List[Dict[str, Any]]],
     output_path: str,
     name_mapping: Dict[str, str] = None,
     title: Optional[str] = None,
-    xlabel: str = "Model",
-    ylabel: str = "Accuracy (%)",
+    xlabel: str = "Language Models",
+    ylabel: str = "Accuracy Score (%)",
     figsize: tuple = (14, 7),
 ):
     """Create a grouped bar chart comparing models across multiple tasks with averages.
@@ -185,9 +195,9 @@ def create_multi_task_summary_chart(
         all_task_results: Dictionary mapping task names to lists of results
         output_path: Path to save the output image
         name_mapping: Dictionary for renaming models
-        title: Chart title (default: "Model Performance Across Multiple Tasks")
-        xlabel: X-axis label
-        ylabel: Y-axis label
+        title: Chart title (default: "Model Performance Across a Variety of Reasoning Tasks")
+        xlabel: X-axis label (default: "Language Models")
+        ylabel: Y-axis label (default: "Accuracy Score (%)")
         figsize: Figure size as (width, height) tuple
     """
     # Extract unique models and tasks
@@ -232,7 +242,9 @@ def create_multi_task_summary_chart(
     for i, task in enumerate(tasks):
         offset = width * i - (width * num_groups / 2) + width / 2
         accuracies = [accuracy_matrix[j][i] for j in range(len(models))]
-        bars = ax.bar(x + offset, accuracies, width, label=task, color=colors[i], alpha=0.8)
+        # Format task name for legend (e.g., 'gsm_symbolic' -> 'Gsm Symbolic')
+        formatted_task_name = format_task_name(task)
+        bars = ax.bar(x + offset, accuracies, width, label=formatted_task_name, color=colors[i], alpha=0.8)
 
         # Add value labels on bars
         for bar in bars:
@@ -256,11 +268,11 @@ def create_multi_task_summary_chart(
     ax.set_ylabel(ylabel, fontsize=12, fontweight='bold')
 
     if title is None:
-        title = 'Model Performance Across Multiple Tasks'
+        title = 'Model Performance Across a Variety of Reasoning Tasks'
     ax.set_title(title, fontsize=14, fontweight='bold')
 
     ax.set_xticks(x)
-    ax.set_xticklabels(model_display_names, rotation=45, ha='right')
+    ax.set_xticklabels(model_display_names, rotation=0, ha='center')
     ax.set_ylim(0, 110)  # Extra space for labels
     ax.legend(title='Tasks', loc='upper left', bbox_to_anchor=(1, 1))
     ax.grid(axis='y', alpha=0.3, linestyle='--')
@@ -301,15 +313,15 @@ def main():
     parser.add_argument(
         '--xlabel',
         type=str,
-        default='Model',
-        help='X-axis label (default: "Model")'
+        default='Language Models',
+        help='X-axis label (default: "Language Models")'
     )
 
     parser.add_argument(
         '--ylabel',
         type=str,
-        default='Accuracy (%%)',
-        help='Y-axis label (default: "Accuracy (%%)")'
+        default='Accuracy Score (%)',
+        help='Y-axis label (default: "Accuracy Score (%%)")'
     )
 
     parser.add_argument(
