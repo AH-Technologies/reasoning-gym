@@ -22,7 +22,7 @@ def load_model(checkpoint_path):
     model, tokenizer = load_model_and_tokenizer_from_path(checkpoint_path)
     model.eval()
 
-    print("\n✓ Model loaded successfully!\n")
+    print("\n Model loaded successfully!\n")
     return model, tokenizer
 
 
@@ -72,14 +72,14 @@ def main():
         checkpoint_path = "./output"
 
     print("="*80)
-    print("🤖 TRAINED MODEL CHATBOT TESTER")
+    print("TRAINED MODEL CHATBOT TESTER")
     print("="*80)
 
     # Load model
     try:
         model, tokenizer = load_model(checkpoint_path)
     except Exception as e:
-        print(f"❌ Error loading model: {e}")
+        print(f"Error loading model: {e}")
         print("\nUsage: python test_model.py [checkpoint_path]")
         print("Default: ./output")
         sys.exit(1)
@@ -113,7 +113,7 @@ def main():
             response = generate_response(model, tokenizer, user_input)
             print(response)
         except Exception as e:
-            print(f"❌ Error generating response: {e}")
+            print(f"Error generating response: {e}")
 
         print()
 

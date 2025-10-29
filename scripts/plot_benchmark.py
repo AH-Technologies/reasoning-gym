@@ -440,6 +440,8 @@ if __name__ == '__main__':
     main()
 
 
+# Example command to run the script with custom options:
+
 # python scripts/plot_benchmark.py results.json \
 #       --title "Performance on Leg Counting Task" \
 #       --color coral \

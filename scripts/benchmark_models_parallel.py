@@ -23,7 +23,6 @@ import sys
 import time
 from concurrent.futures import ProcessPoolExecutor, as_completed
 from datetime import datetime
-from fractions import Fraction
 from pathlib import Path
 from typing import Dict, List, Any, Optional
 
@@ -37,6 +36,12 @@ from transformers import AutoModelForCausalLM, AutoTokenizer
 
 # Add parent directory to path for imports
 sys.path.insert(0, str(Path(__file__).parent.parent))
+from src.data.dataset_utils import (
+    format_question,
+    extract_answer_from_response,
+    score_answer,
+    create_dataset as create_unified_dataset
+)
 from src.models.model_loader import load_model_and_tokenizer_from_path
 
 
@@ -73,72 +78,31 @@ def get_model_display_name(model_name_or_path: str) -> str:
     return model_name_or_path
 
 
-def format_question_simple(question: str) -> str:
-    """Format question with simple instructions - no reasoning hints."""
-    instruction = """Answer the following question directly. Provide your final answer as a number on the last line in this format: "Final Answer: [number]"
+def create_benchmark_dataset(task_name: str, num_examples: int, seed: int = 42) -> tuple[Dataset, reasoning_gym.dataset.ProceduralDataset]:
+    """Create a fixed benchmark dataset from reasoning-gym.
 
-"""
-    return instruction + question
-
-
-def convert_to_serializable(obj: Any) -> Any:
-    """Convert non-serializable objects (like Fraction) to serializable types.
-
-    This is needed because PyArrow (used by datasets library) cannot handle
-    certain Python types like Fraction objects.
+    Returns both the HuggingFace Dataset and the original reasoning-gym dataset
+    for scoring purposes.
     """
-    if isinstance(obj, Fraction):
-        # Convert Fraction to float
-        return float(obj)
-    elif isinstance(obj, dict):
-        return {k: convert_to_serializable(v) for k, v in obj.items()}
-    elif isinstance(obj, (list, tuple)):
-        return [convert_to_serializable(item) for item in obj]
-    elif isinstance(obj, np.integer):
-        return int(obj)
-    elif isinstance(obj, np.floating):
-        return float(obj)
-    else:
-        return obj
-
-
-def create_benchmark_dataset(task_name: str, num_examples: int, seed: int = 42) -> Dataset:
-    """Create a fixed benchmark dataset from reasoning-gym."""
     logger.info(f"Creating benchmark dataset: {task_name} with {num_examples} examples (seed={seed})")
 
-    rg_data = reasoning_gym.create_dataset(
+    # Create the unified dataset
+    hf_dataset = create_unified_dataset(
+        task_name=task_name,
+        num_examples=num_examples,
+        seed=seed,
+        format_questions=True
+    )
+
+    # Also create the reasoning-gym dataset for scoring
+    rg_dataset = reasoning_gym.create_dataset(
         task_name,
         size=num_examples,
         seed=seed
     )
 
-    questions = [format_question_simple(entry['question']) for entry in rg_data]
-
-    # Convert metadata to JSON strings to avoid PyArrow serialization issues
-    # This handles both Fraction objects and inconsistent metadata structures
-    metadata = [json.dumps(convert_to_serializable(entry['metadata'])) for entry in rg_data]
-
-    dataset = Dataset.from_dict({
-        'question': questions,
-        'answer': [entry['answer'] for entry in rg_data],
-        'info': metadata
-    })
-
-    logger.info(f"Created dataset with {len(dataset)} examples")
-    return dataset
-
-
-def extract_answer(text: str) -> Optional[str]:
-    """Extract answer from model output."""
-    final_answer_match = re.search(r'Final Answer:\s*(\d+)', text, re.IGNORECASE)
-    if final_answer_match:
-        return final_answer_match.group(1)
-
-    numbers = re.findall(r'\d+', text)
-    if numbers:
-        return numbers[-1]
-
-    return None
+    logger.info(f"Created dataset with {len(hf_dataset)} examples")
+    return hf_dataset, rg_dataset
 
 
 def load_model_and_tokenizer(model_name_or_path: str, device: str = "cuda") -> tuple:
@@ -212,6 +176,7 @@ def evaluate_model_on_gpu(
     model_name_or_path: str,
     task_name: str,
     dataset_dict: Dict,
+    rg_dataset_params: Dict,
     gpu_id: int,
     max_new_tokens: int = 512,
     temperature: float = 0.1,
@@ -224,6 +189,7 @@ def evaluate_model_on_gpu(
         model_name_or_path: HuggingFace model name or path to local checkpoint
         task_name: Name of the task being evaluated
         dataset_dict: Dataset as dictionary
+        rg_dataset_params: Parameters to recreate reasoning-gym dataset for scoring
         gpu_id: GPU ID to use
         max_new_tokens: Maximum tokens to generate
         temperature: Sampling temperature
@@ -235,8 +201,15 @@ def evaluate_model_on_gpu(
     device = f"cuda:{gpu_id}"
     os.environ['CUDA_VISIBLE_DEVICES'] = str(gpu_id)
 
-    # Recreate dataset from dict
+    # Recreate datasets
     dataset = Dataset.from_dict(dataset_dict)
+    # reasoning_gym.create_dataset expects task name as first positional arg
+    rg_dataset = reasoning_gym.create_dataset(
+        rg_dataset_params['task_name'],
+        size=rg_dataset_params['size'],
+        seed=rg_dataset_params['seed']
+    )
+    rg_entries = list(rg_dataset)
 
     # Get display name for logging
     display_name = get_model_display_name(model_name_or_path)
@@ -265,7 +238,7 @@ def evaluate_model_on_gpu(
 
     # Evaluate on all examples
     results = []
-    correct = 0
+    total_score = 0.0
 
     for idx, example in enumerate(dataset):
         try:
@@ -275,12 +248,20 @@ def evaluate_model_on_gpu(
                 temperature=temperature
             )
 
-            predicted_answer = extract_answer(generated)
+            # Extract answer using unified extraction
+            predicted_answer = extract_answer_from_response(generated)
             true_answer = str(example['answer'])
 
-            is_correct = predicted_answer == true_answer
+            # Score using dataset's scoring method
+            rg_entry = rg_entries[idx]
+            answer_score = score_answer(rg_dataset, predicted_answer, rg_entry)
+
+            # Consider it correct if score is 1.0 (perfect match)
+            is_correct = (answer_score == 1.0)
             if is_correct:
-                correct += 1
+                total_score += 1.0
+            else:
+                total_score += answer_score
 
             results.append({
                 'example_id': idx,
@@ -288,11 +269,12 @@ def evaluate_model_on_gpu(
                 'true_answer': true_answer,
                 'predicted_answer': predicted_answer,
                 'generated_text': generated,
+                'score': answer_score,
                 'correct': is_correct
             })
 
             if (idx + 1) % 10 == 0:
-                current_acc = correct / (idx + 1) * 100
+                current_acc = total_score / (idx + 1) * 100
                 logger.info(f"  [{display_name}] Progress: {idx + 1}/{len(dataset)} | Accuracy: {current_acc:.1f}%")
 
         except Exception as e:
@@ -300,16 +282,19 @@ def evaluate_model_on_gpu(
             results.append({
                 'example_id': idx,
                 'error': str(e),
+                'score': 0.0,
                 'correct': False
             })
 
     # Calculate metrics
-    accuracy = correct / len(dataset) * 100
+    accuracy = total_score / len(dataset) * 100
+    num_correct = sum(1 for r in results if r.get('correct', False))
     elapsed_time = time.time() - start_time
 
     logger.info(f"\nResults for {display_name} on {task_name}:")
-    logger.info(f"  Correct: {correct}/{len(dataset)}")
+    logger.info(f"  Correct: {num_correct}/{len(dataset)}")
     logger.info(f"  Accuracy: {accuracy:.2f}%")
+    logger.info(f"  Average Score: {total_score / len(dataset):.3f}")
     logger.info(f"  Time: {elapsed_time:.1f}s")
 
     # Clean up
@@ -322,8 +307,9 @@ def evaluate_model_on_gpu(
         'display_name': display_name,
         'gpu_id': gpu_id,
         'accuracy': accuracy,
-        'num_correct': correct,
+        'num_correct': num_correct,
         'num_total': len(dataset),
+        'average_score': total_score / len(dataset),
         'time_seconds': elapsed_time,
         'examples': results[:5],
     }
@@ -488,13 +474,20 @@ def main():
     # Create datasets for all tasks upfront
     logger.info("Creating datasets for all tasks...")
     task_datasets = {}
+    task_rg_params = {}
     for task in args.tasks:
         logger.info(f"  Creating dataset for {task}...")
-        dataset = create_benchmark_dataset(task, args.num_examples, args.seed)
+        hf_dataset, rg_dataset = create_benchmark_dataset(task, args.num_examples, args.seed)
         task_datasets[task] = {
-            'question': dataset['question'],
-            'answer': dataset['answer'],
-            'info': dataset['info']
+            'question': hf_dataset['question'],
+            'answer': hf_dataset['answer'],
+            'info': hf_dataset['info']
+        }
+        # Store parameters to recreate RG dataset in subprocess
+        task_rg_params[task] = {
+            'task_name': task,
+            'size': args.num_examples,
+            'seed': args.seed
         }
     logger.info("All datasets created!\n")
 
@@ -527,6 +520,7 @@ def main():
                 model_name,
                 task,
                 task_datasets[task],
+                task_rg_params[task],
                 gpu_id,
                 args.max_new_tokens,
                 args.temperature
