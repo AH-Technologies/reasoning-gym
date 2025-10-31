@@ -42,10 +42,8 @@ Available tasks include:
 - `gsm_symbolic`: Math word problems
 - `letter_counting`: Count letters in words
 - `basic_arithmetic`: Simple arithmetic
-- `tower_of_hanoi`: Tower of Hanoi puzzles
 - `mini_sudoku`: 4x4 Sudoku puzzles
 - `simple_geometry`: Geometry problems
-- `shortest_path`: Graph shortest path problems
 
 ### Universal Answer Format
 
@@ -104,7 +102,7 @@ def compute(self, prompt, completion, answer, info):
     return score  # 1.0 = correct, 0.0 = wrong
 ```
 
-You can add custom rewards and combine them:
+You can add custom rewards and combine them (not done for our experiments):
 ```yaml
 rewards:
   - name: "correctness"
@@ -145,8 +143,7 @@ reasoning-gym/
 ├── scripts/                      # Executable scripts
 │   ├── train.py                 # Main training script
 │   ├── benchmark_models_parallel.py  # Parallel benchmarking
-│   ├── plot_benchmark.py        # Generate charts from results
-│   └── generate_slurm.py        # Generate SLURM job scripts
+│   └── plot_benchmark.py        # Generate charts from results
 │
 ├── experiments/                  # Training outputs (checkpoints, logs)
 ├── benchmark_results/            # Benchmark results (JSON + charts)
@@ -161,19 +158,12 @@ reasoning-gym/
 # Activate environment
 source activate.sh
 
-# Local training
-python scripts/train.py configs/experiments/leg_counting_qwen7b.yaml
-
-# Generate SLURM script for cluster
-python scripts/generate_slurm.py \
-    configs/experiments/leg_counting_qwen7b.yaml \
-    your-slurm-account \
-    --gpus 4 \
-    --time 04:00:00
-
-# Submit to SLURM
-sbatch slurm_leg_counting_qwen7b.sh
+# Training on Idun cluster (GPU required)
+# Edit run_training.slurm with your configuration, then:
+sbatch run_training.slurm
 ```
+
+Note: This project has only been tested on the Idun cluster with GPUs. Local training without GPUs has not been tested. You'll need to manually create your own SLURM job script (see `run_training.slurm` and `run_benchmark_parallel.slurm` for examples).
 
 ### How Training Works
 
@@ -229,9 +219,10 @@ logging:
   wandb_project: "reasoning-gym"
 ```
 
-3. **Run training**:
+3. **Run training on Idun**:
 ```bash
-python scripts/train.py configs/experiments/your_experiment.yaml
+# Edit run_training.slurm to use your experiment config
+sbatch run_training.slurm
 ```
 
 ### Config Inheritance
@@ -308,7 +299,7 @@ summary_all_tasks_20251026_121530.png
 
 ### Visualizing Results
 
-Generate custom charts from benchmark results:
+The parallel benchmark script generates graphs automatically, but you may want to reformat them for presentations or papers. The `plot_benchmark.py` script regenerates graphs from the JSON result files with custom formatting:
 
 ```bash
 # Basic usage
@@ -325,16 +316,7 @@ python scripts/plot_benchmark.py results.json \
 python scripts/plot_benchmark.py results.json --rename-file mappings.json
 ```
 
-Rename mapping file format (`mappings.json`):
-```json
-{
-  "Qwen/Qwen2.5-7B-Instruct": "Qwen 7B",
-  "meta-llama/Llama-3.1-8B-Instruct": "Llama 3.1 8B",
-  "experiments/leg_counting_qwen7b/checkpoint-450": "Fine-tuned Qwen 7B"
-}
-```
-
-The script auto-detects single-task vs multi-task result files and generates appropriate charts.
+This is useful for making graphs more presentable by using cleaner model names, custom titles, and different styling.
 
 ## Unified Dataset Handling
 
@@ -390,45 +372,13 @@ This means you **never need to write task-specific verification code** - it's al
 
 ## Key Design Decisions
 
-### Why XML Tags?
-
-Alternative approaches and their issues:
-- **Task-specific formats** (e.g., "Final answer: X"): Breaks when tasks already have instructions
-- **Regex patterns**: Different tasks have different formats, hard to maintain
-- **End-of-sequence**: Model might explain after giving answer
-
-**XML tags solve all of these:**
-- Universal format across all tasks
-- Built-in to reasoning-gym's evaluation framework
-- Doesn't conflict with existing task instructions
-- Easy to parse reliably
-
 ### Why Unified Dataset Code?
 
-Previously, training and benchmarking had separate dataset handling code, leading to:
-- Different prompting between training and evaluation
-- Inconsistent answer extraction logic
-- Harder to maintain and debug
-
-Now both use `src/data/dataset_utils.py`:
+Both training and benchmarking use `src/data/dataset_utils.py` for all dataset operations:
 - Same prompts in training and evaluation
 - Same answer extraction logic
 - Single source of truth for dataset handling
 - Changes automatically apply to both training and benchmarking
-
-### Why Verifiers Enable GRPO?
-
-Traditional supervised fine-tuning requires human-labeled examples. GRPO uses reinforcement learning, which requires:
-
-1. **Environment**: The reasoning task (questions from reasoning-gym)
-2. **Actions**: Model completions (generated answers)
-3. **Rewards**: Correctness scores (from verifiers)
-
-Verifiers provide automatic, scalable rewards:
-- No human labeling needed
-- Can generate unlimited training problems
-- Immediate feedback for learning
-- Task-appropriate scoring logic
 
 ## Development
 
@@ -501,8 +451,9 @@ lora:
 ### Train and Compare
 
 ```bash
-# 1. Train a model
-python scripts/train.py configs/experiments/leg_counting_qwen7b.yaml
+# 1. Train a model on Idun
+# Edit run_training.slurm to use configs/experiments/leg_counting_qwen7b.yaml
+sbatch run_training.slurm
 
 # 2. Benchmark trained vs baseline
 # Edit run_benchmark_parallel.slurm:
@@ -513,7 +464,7 @@ MODELS=(
 
 sbatch run_benchmark_parallel.slurm
 
-# 3. Generate clean comparison chart
+# 3. Generate clean comparison chart (can run locally)
 python scripts/plot_benchmark.py \
     benchmark_results/results_leg_counting_*.json \
     --title "Impact of Fine-tuning on Leg Counting" \
@@ -531,29 +482,6 @@ TASKS=("gsm_symbolic" "letter_counting" "tower_of_hanoi" "mini_sudoku")
 sbatch run_benchmark_parallel.slurm
 
 # Results include per-task and average performance
-```
-
-### Hyperparameter Search
-
-```bash
-# Create experiments with different hyperparameters
-# configs/experiments/leg_counting_lr1.yaml
-training:
-  learning_rate: 1.0e-6
-
-# configs/experiments/leg_counting_lr2.yaml
-training:
-  learning_rate: 2.0e-6
-
-# Train all variants
-python scripts/train.py configs/experiments/leg_counting_lr1.yaml
-python scripts/train.py configs/experiments/leg_counting_lr2.yaml
-
-# Benchmark all checkpoints together
-MODELS=(
-    "experiments/leg_counting_lr1/checkpoint-450"
-    "experiments/leg_counting_lr2/checkpoint-450"
-)
 ```
 
 ## Troubleshooting
