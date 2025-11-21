@@ -535,7 +535,7 @@ sbatch run_benchmark_parallel.slurm
 
 ## References
 
-- [Reasoning Gym](https://github.com/reasoning-gym/reasoning-gym): Procedural reasoning task generation
+- [Reasoning Gym](https://github.com/open-thought/reasoning-gym): Procedural reasoning task generation
 - [GRPO Paper](https://arxiv.org/abs/2402.03300): Group Relative Policy Optimization
-- [Verifiers Library](https://github.com/jettjaniak/verifiers): GRPO training implementation used in this project
+- [Verifiers Library](https://github.com/PrimeIntellect-ai/verifiers): GRPO training implementation used in this project
 - [LoRA Paper](https://arxiv.org/abs/2106.09685): Low-Rank Adaptation for efficient fine-tuning
