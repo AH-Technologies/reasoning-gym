@@ -452,7 +452,7 @@ if __name__ == '__main__':
     main()
 
 
-# Example command to run the script with custom options:
+# Example command to run the script with custom options (this is the one used for the report):
 
 # python scripts/plot_benchmark.py results.json \
 #       --title "Performance on Leg Counting Task" \

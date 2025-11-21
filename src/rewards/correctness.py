@@ -34,6 +34,8 @@ class CorrectnessReward(BaseReward):
 
     def extract_answer(self, model_output: str) -> tuple[str, bool]:
         """Extract answer from model output with fallback strategies.
+            Design decision we made here: even if the model deosnt answer in the correct format we still look for an answer
+            and try to extract it. This is because we want to give partial credit to models that try to answer the question but fail to follow the format perfectly.
 
         Args:
             model_output: The raw model output text
@@ -65,14 +67,14 @@ class CorrectnessReward(BaseReward):
         answer: str,
         info: Dict[str, Any]
     ) -> float:
-        """Check if model's answer is correct with sophisticated extraction."""
+        """Check if model's answer is correct with extraction."""
         # Extract model's raw output
         if isinstance(completion, list) and len(completion) > 0:
             model_output = completion[-1].get('content', '').strip()
         else:
             model_output = str(completion).strip()
 
-        # Extract answer using sophisticated extraction
+        # Extract answer using extraction
         model_answer, used_correct_format = self.extract_answer(model_output)
 
         # Create entry for scoring

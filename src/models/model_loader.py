@@ -96,7 +96,7 @@ def load_model_and_tokenizer_from_path(
         # Load tokenizer from base model
         tokenizer = AutoTokenizer.from_pretrained(base_model_name, trust_remote_code=trust_remote_code)
 
-        print(f"  ✓ LoRA model loaded successfully")
+        print(f"LoRA model loaded successfully")
 
     else:
         # Regular model loading
@@ -112,7 +112,7 @@ def load_model_and_tokenizer_from_path(
 
         tokenizer = AutoTokenizer.from_pretrained(model_name_or_path, trust_remote_code=trust_remote_code)
 
-        print(f"  ✓ Model loaded successfully")
+        print(f"Model loaded successfully")
 
     # Set pad token if not set
     if tokenizer.pad_token is None:
@@ -141,6 +141,6 @@ def load_model_and_tokenizer(config: Dict[str, Any]) -> Tuple[AutoModelForCausal
         low_cpu_mem_usage=low_cpu_mem_usage
     )
 
-    print(f"✓ Model and tokenizer loaded")
+    print(f"Model and tokenizer loaded")
 
     return model, tokenizer

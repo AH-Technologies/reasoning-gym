@@ -1,50 +1,73 @@
 """Unified dataset utilities for reasoning-gym tasks.
 
 This module provides consistent dataset handling for both training and benchmarking,
-following the official reasoning-gym evaluation approach.
+using the 'Final Answer:' format for answer extraction.
 """
 
 import json
+import re
 from fractions import Fraction
 from typing import Any, Optional
 
 import numpy as np
 import reasoning_gym
 from datasets import Dataset
-from reasoning_gym.utils import extract_answer
 
 
 def format_question(question: str) -> str:
-    """Format question with universal XML-based answer instruction.
+    """Format question with 'Final Answer:' instruction.
 
-    This instruction format works for all reasoning-gym tasks (numbers, sequences, text)
-    and follows the official reasoning-gym evaluation approach.
+    This instruction format is used consistently in both training and benchmarking
+    to ensure models learn the same format they'll be evaluated on.
 
     Args:
         question: The question to format
 
     Returns:
-        Formatted question with XML answer instructions
+        Formatted question with answer instructions
     """
-    instruction = """Think step by step and solve the problem carefully. When you have your final answer, format it as: <answer>your answer here</answer>
+    instruction = """You are solving a math problem. Follow these steps:
+1. Think through the problem step by step
+2. Show your calculation
+3. On the last line, write your final answer EXACTLY in this format: "Final Answer: [number]"
 
 """
     return instruction + question
 
 
 def extract_answer_from_response(response: str) -> Optional[str]:
-    """Extract answer from model response using reasoning-gym's standard extraction.
+    """Extract answer from model response using 'Final Answer:' format.
 
-    This function uses reasoning-gym's built-in XML tag extraction which handles
-    all answer types (numbers, sequences, text) uniformly.
+    Uses multiple fallback strategies to extract answers:
+    1. Look for exact format "Final Answer: [number]"
+    2. If not found, look for any number pattern at end of output
+    3. As last resort, return the full response
+
+    This matches the extraction logic used during training to ensure consistency
+    between training and evaluation.
 
     Args:
         response: The model's response text
 
     Returns:
-        Extracted answer string, or None if no answer found
+        Extracted answer string
     """
-    return extract_answer(response, tag_name="answer", strip=True)
+    # Strategy 1: Look for exact format "Final Answer: [number]"
+    final_answer_match = re.search(
+        r'Final Answer:\s*(\d+)',
+        response,
+        re.IGNORECASE
+    )
+    if final_answer_match:
+        return final_answer_match.group(1)
+
+    # Strategy 2: Fallback - Look for any number pattern at end of output
+    numbers = re.findall(r'\b(\d+)\b', response)
+    if numbers:
+        return numbers[-1]  # Take the last number found
+
+    # Strategy 3: Last resort - use full output
+    return response
 
 
 def score_answer(

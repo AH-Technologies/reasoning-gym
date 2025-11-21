@@ -70,7 +70,7 @@ def get_model_display_name(model_name_or_path: str) -> str:
     """
     if is_local_path(model_name_or_path):
         path = Path(model_name_or_path)
-        # If it's a checkpoint-XXX, include parent folder name for context
+        # If it's a checkpoint-XXX, include parent folder name for context (we can modify the name with different script later for nicer looking graphs)
         if path.name.startswith('checkpoint-'):
             parent = path.parent.name
             return f"{parent}/{path.name}"
@@ -165,7 +165,7 @@ def generate_answer(
             do_sample=temperature > 0,
             pad_token_id=tokenizer.pad_token_id,
             eos_token_id=tokenizer.eos_token_id,
-            use_cache=False,  # Disable cache for compatibility
+            use_cache=False,  # Disable cache for compatibility. (This caused an error, dont remember why. Works fine with it off.)
         )
 
     generated_text = tokenizer.decode(outputs[0][inputs.shape[1]:], skip_special_tokens=True)
@@ -256,7 +256,7 @@ def evaluate_model_on_gpu(
             rg_entry = rg_entries[idx]
             answer_score = score_answer(rg_dataset, predicted_answer, rg_entry)
 
-            # Consider it correct if score is 1.0 (perfect match)
+            # Consider it correct if score is 1.0 (perfect match) (could be interesting to add some more metrics here to see how far of the model is when failing and so on)
             is_correct = (answer_score == 1.0)
             if is_correct:
                 total_score += 1.0
@@ -415,7 +415,7 @@ def create_summary_chart(all_task_results: Dict[str, List[Dict[str, Any]]], outp
     ax.set_title('Model Performance Across Multiple Tasks', fontsize=14, fontweight='bold')
     ax.set_xticks(x)
     ax.set_xticklabels(model_display_names, rotation=45, ha='right')
-    ax.set_ylim(0, 110)  # Extra space for labels
+    ax.set_ylim(0, 110)  # Extra space for labels (when we make new grpahs with better name this doesnt matter but it is helpful for reading the raw results)
     ax.legend(title='Tasks', loc='upper left', bbox_to_anchor=(1, 1))
     ax.grid(axis='y', alpha=0.3, linestyle='--')
 

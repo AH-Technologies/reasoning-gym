@@ -20,7 +20,7 @@ def create_environment(dataset: Dataset, rewards: list) -> vf.SingleTurnEnv:
     rubric = create_rubric_from_rewards(rewards)
     env = vf.SingleTurnEnv(dataset=dataset, rubric=rubric)
 
-    print(f"✓ Environment created")
+    print(f"Environment created")
     return env
 
 
@@ -54,7 +54,7 @@ def create_training_config(config: Dict[str, Any]) -> vf.GRPOConfig:
         ref_model_mixup_alpha=train_config.get('ref_model_mixup_alpha', 0.5),
     )
 
-    print(f"✓ Training config created")
+    print(f"  Training config created")
     print(f"  Output: {train_config['output_dir']}")
     print(f"  Epochs: {train_config['num_train_epochs']}")
     print(f"  Batch size: {train_config['per_device_train_batch_size']}")
@@ -84,7 +84,7 @@ def create_trainer(model, tokenizer, training_config: vf.GRPOConfig, env: vf.Sin
         peft_config=peft_config,
     )
 
-    print(f"✓ Trainer created")
+    print(f"Trainer created")
     return trainer
 
 

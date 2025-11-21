@@ -11,7 +11,7 @@ This framework lets you:
 
 The key insight: reasoning tasks have **verifiable answers**, which means we can automatically check if the model got the right answer and use that signal to improve the model through reinforcement learning.
 
-## Understanding Reasoning Gym
+## Understanding Reasoning Gym 
 
 [Reasoning Gym](https://github.com/reasoning-gym/reasoning-gym) is a library that provides procedurally-generated reasoning tasks. Each task comes with built-in verification.
 
@@ -50,14 +50,17 @@ Available tasks include:
 This project uses a **unified answer format** that works across all task types:
 
 ```
-Think step by step and solve the problem carefully. When you have your final answer, format it as: <answer>your answer here</answer>
+You are solving a math problem. Follow these steps:
+1. Think through the problem step by step
+2. Show your calculation
+3. On the last line, write your final answer EXACTLY in this format: "Final Answer: [number]"
 ```
 
-Why XML tags?
-- Works for all answer types (numbers, sequences, text)
-- Doesn't conflict with task-specific instructions
-- Easy to extract programmatically using `reasoning_gym.utils.extract_answer()`
-- Follows reasoning-gym's official evaluation approach
+Why this format?
+- Clear and explicit for models to follow
+- Works reliably for numerical reasoning tasks
+- Easy to extract programmatically with robust fallback strategies
+- Consistent between training and evaluation
 
 This means training and benchmarking use the **exact same prompting and extraction logic**.
 
@@ -65,11 +68,13 @@ This means training and benchmarking use the **exact same prompting and extracti
 
 GRPO (Group Relative Policy Optimization) is a reinforcement learning algorithm designed for training language models with verifiable rewards.
 
+**Implementation Note**: This project uses the [`verifiers`](https://github.com/jettjaniak/verifiers) library for the core GRPO training implementation. Our code (`src/training/trainer.py`) creates the training environment and reward functions, then delegates to `verifiers.GRPOTrainer` for the actual training loop.
+
 ### The Training Loop
 
 ```
 1. Generate multiple completions per question (e.g., 8 completions)
-2. Extract answers from each completion using XML tags
+2. Extract answers from each completion using "Final Answer:" pattern matching
 3. Verify each answer using the task's built-in verifier
 4. Compute rewards based on correctness
 5. Use GRPO to update the model to prefer correct answers
@@ -90,13 +95,16 @@ Located in `src/rewards/`, rewards compute scores for model outputs.
 **Correctness Reward** (`src/rewards/correctness.py`):
 ```python
 def compute(self, prompt, completion, answer, info):
-    # Extract model's answer from completion
-    model_answer = extract_answer_from_response(completion)
+    # Extract model's answer using multi-strategy extraction:
+    # 1. Look for "Final Answer: [number]" pattern
+    # 2. If not found, extract last number in response
+    # 3. As fallback, use full response
+    model_answer = self.extract_answer(completion)
 
-    # Score using dataset verifier
-    score = self.rg_dataset.score_answer(
+    # Score using reasoning-gym's task-specific scoring function
+    score = self.score_fn(
         answer=model_answer,
-        entry=info  # Original problem metadata
+        entry={'question': prompt, 'answer': answer, 'metadata': info}
     )
 
     return score  # 1.0 = correct, 0.0 = wrong
@@ -169,7 +177,7 @@ Note: This project has only been tested on the Idun cluster with GPUs. Local tra
 
 1. **Dataset Creation** (`src/data/dataset_loader.py`):
    - Generates reasoning problems using reasoning-gym
-   - Formats questions with universal XML answer instructions
+   - Formats questions with "Final Answer:" instructions
    - Stores correct answers and metadata
 
 2. **Model Loading** (`src/models/model_loader.py`):
@@ -195,7 +203,7 @@ data:
   task_name: "tower_of_hanoi"  # Any reasoning-gym task
   num_examples: 2048
   seed: 42
-  add_instructions: true  # Add XML answer instructions
+  add_instructions: true  # Add "Final Answer:" format instructions
 
 rewards:
   - name: "correctness"
@@ -269,7 +277,7 @@ NUM_GPUS=8
 
 1. **Dataset Creation** (`scripts/benchmark_models_parallel.py`):
    - Creates fixed test sets for each task using same seed
-   - Formats questions with XML answer instructions (same as training)
+   - Formats questions with "Final Answer:" instructions (same as training)
 
 2. **Parallel Execution**:
    - Creates all (task, model) combinations
@@ -326,8 +334,11 @@ Both training and benchmarking use identical dataset handling from `src/data/dat
 
 ```python
 def format_question(question: str) -> str:
-    """Add universal XML answer instruction to any reasoning-gym question."""
-    instruction = """Think step by step and solve the problem carefully. When you have your final answer, format it as: <answer>your answer here</answer>
+    """Add 'Final Answer:' instruction to any reasoning-gym question."""
+    instruction = """You are solving a math problem. Follow these steps:
+1. Think through the problem step by step
+2. Show your calculation
+3. On the last line, write your final answer EXACTLY in this format: "Final Answer: [number]"
 
 """
     return instruction + question
@@ -336,17 +347,28 @@ def format_question(question: str) -> str:
 ### Answer Extraction
 
 ```python
-from reasoning_gym.utils import extract_answer
+import re
 
 def extract_answer_from_response(response: str) -> Optional[str]:
-    """Extract answer from model response using reasoning-gym's parser."""
-    return extract_answer(response, tag_name="answer", strip=True)
+    """Extract answer from model response using multi-strategy approach."""
+    # Strategy 1: Look for exact format "Final Answer: [number]"
+    final_answer_match = re.search(r'Final Answer:\s*(\d+)', response, re.IGNORECASE)
+    if final_answer_match:
+        return final_answer_match.group(1)
+
+    # Strategy 2: Fallback - Look for any number pattern at end
+    numbers = re.findall(r'\b(\d+)\b', response)
+    if numbers:
+        return numbers[-1]
+
+    # Strategy 3: Last resort - use full output
+    return response
 ```
 
-This function handles:
-- Finding the last `<answer>...</answer>` tag in the response
-- Extracting and trimming the content
-- Returning None if no answer tag found
+This multi-strategy extraction ensures robustness:
+- Primarily looks for the exact "Final Answer: [number]" format
+- Falls back to extracting the last number if format not followed
+- Uses full response as last resort to avoid losing information
 
 ### Answer Verification
 
@@ -432,19 +454,22 @@ No code changes needed! Just create a model config:
 ```yaml
 model:
   name: "HuggingFace/model-name"
+  torch_dtype: "bfloat16"
+  low_cpu_mem_usage: true
 
-lora:
-  r: 64
-  lora_alpha: 16
-  target_modules:
-    - q_proj
-    - v_proj
-    - k_proj
-    - o_proj
-  lora_dropout: 0.05
-  bias: "none"
-  task_type: "CAUSAL_LM"
+training:
+  # LoRA configuration
+  use_lora: true
+  lora_r: 32      # LoRA rank (higher = more capacity, more memory)
+  lora_alpha: 64  # LoRA scaling parameter
+
+  # Other model-specific training settings
+  per_device_train_batch_size: 1
+  gradient_accumulation_steps: 16
+  learning_rate: 3.0e-5
 ```
+
+Note: LoRA configuration uses the `verifiers` library's `lora_defaults()` function, which handles target modules, dropout, and other parameters automatically based on the model architecture.
 
 ## Common Workflows
 
@@ -489,9 +514,9 @@ sbatch run_benchmark_parallel.slurm
 ### Memory Issues
 
 - Reduce `training.per_device_train_batch_size`
-- Reduce `training.generation_config.num_return_sequences` (fewer completions per question)
+- Reduce `training.num_generations` (fewer completions per question)
 - Enable gradient checkpointing (already on by default)
-- Reduce LoRA rank (`lora.r`)
+- Reduce LoRA rank (`training.lora_r`)
 
 ### Low Accuracy
 
@@ -512,5 +537,5 @@ sbatch run_benchmark_parallel.slurm
 
 - [Reasoning Gym](https://github.com/reasoning-gym/reasoning-gym): Procedural reasoning task generation
 - [GRPO Paper](https://arxiv.org/abs/2402.03300): Group Relative Policy Optimization
+- [Verifiers Library](https://github.com/jettjaniak/verifiers): GRPO training implementation used in this project
 - [LoRA Paper](https://arxiv.org/abs/2106.09685): Low-Rank Adaptation for efficient fine-tuning
-- [TRL Library](https://github.com/huggingface/trl): Transformer Reinforcement Learning (used for GRPO implementation)

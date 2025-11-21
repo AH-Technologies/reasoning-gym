@@ -1,6 +1,6 @@
 #!/bin/bash
 #
-# check_gpus.sh - Check GPU availability on SLURM cluster
+# check_gpus.sh - Check GPU availability on SLURM cluster (this is only tested on the IDUN computer.)
 #
 # Usage:
 #   ./check_gpus.sh              # Show all GPU nodes

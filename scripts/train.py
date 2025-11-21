@@ -78,7 +78,7 @@ def main():
     # Print training banner
     print_training_banner(config.to_dict())
 
-    # Step 1: Create dataset (with prompt formatting from old code)
+    # Step 1: Create dataset
     print("\n[1/5] Creating dataset...")
     dataset = load_dataset_from_config(config.to_dict())
 

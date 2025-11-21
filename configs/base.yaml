@@ -47,7 +47,7 @@ rewards:
 
 # Logging Configuration
 logging:
-  report_to: "wandb"  # Can be "wandb", "tensorboard", or "none"
+  report_to: "wandb"  # We only have wandb atm, can be extended but not needed as wandb works well
   project_name: null  # Will use default if null
   run_name: null  # Will auto-generate if null
 
